@@ -113,11 +113,11 @@ class RothC:
         """
 
         stress_temp = self.fT(temperature=temperature)
-        acc_TSMD, b = self.fW(
+        acc_TSMD, b = self._fW(
             precip=precip,
             evaporation=evaporation,
             pE=self.pE,
-            bare=self.bare,
+            soil_cover=self.bare,
             clay=self.clay,
             soil_thickness=self.soil_thickness,
         )
@@ -203,6 +203,55 @@ class RothC:
         b = 0.2 + 0.8 * ((max_smd - acc_TSMD) / (max_smd - 0.444 * max_smd))
         b[mask] = 1
         return acc_TSMD, b
+    
+    def _fW(self, 
+            precip: np.ndarray, 
+            evaporation: np.ndarray, 
+            soil_thickness: float, 
+            pE: float = 1.0,
+            clay: float = 20.0,
+            soil_cover: Union[bool, np.ndarray] = True) -> np.ndarray:
+
+        """
+        Effects of moisture on decomposition rates according to the RothC model
+
+        Calculates the effects of moisture (precipitation and pan evaporation) on
+        decomposition rates according to the RothC model.
+
+        Parameters:
+        pp (np.ndarray): Values of monthly precipitation (mm).
+        et (np.ndarray): Values of monthly open pan evaporation or evapotranspiration (mm).
+        s_thick (float): Soil thickness in cm. Default for Rothamsted is 23 cm.
+        pclay (float): Percent clay in mineral soil.
+        pE (float, optional): Evaporation coefficient. If open pan evaporation is used pE=0.75.
+                            If Potential evaporation is used, pE=1.0. Defaults to 1.0.
+        soil_cover (Union[bool, np.ndarray], optional): Logical value or array indicating soil cover.
+                                                    Under bare soil conditions, soil_cover=True.
+                                                    Default is set under vegetated soil. Defaults to True.
+
+        Returns:
+        np.ndarray: A vector with the rate modifying factor.
+        """
+        if len(evaporation) != len(precip):
+                raise ValueError("precip and evaporation must have the same length")
+
+        soil_cover = not bool(soil_cover)
+
+        if isinstance(soil_cover, list):
+                if len(soil_cover) != len(precip) or len(soil_cover) != len(evaporation):
+                    raise ValueError("pp, et, and soil_cover must have the same length")
+
+                fwBare = self.fW(precip=precip, evaporation=evaporation, soil_thickness=soil_thickness, clay=clay, pE=pE, bare=True)[0]
+                fwCoverd = self.fW(precip=precip, evaporation=evaporation, soil_thickness=soil_thickness, clay=clay, bare=False)[0]
+
+                fw = fwBare
+                for i in range(len(soil_cover)):
+                    if not soil_cover[i]:
+                        fw[i] = fwCoverd[i]
+        else:
+            fw = self.fW(precip=precip, evaporation=evaporation, soil_thickness=soil_thickness, clay=clay, pE=pE, bare=soil_cover)[0]
+
+        return fw
 
     def get_input_flux(
         self, input_carbon: float, farmyard_manure: float = 0, DR: float = 1.44
